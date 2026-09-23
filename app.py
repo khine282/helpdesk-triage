@@ -4,8 +4,15 @@ from triage import triage, ticket_to_html
 
 st.set_page_config(page_title="IT Helpdesk Triage", page_icon="🛠️")
 st.title("🛠️ Multilingual IT Helpdesk Triage")
-st.caption("📚 A learning project for practising prompt engineering. Chat in Burmese, English, Chinese, Malay, or a mix.")
-st.warning("Just a learning project: no real tickets, and nobody will actually contact you. Please use made-up examples.")
+st.caption("Chat in Burmese, English, Chinese, Malay, or a mix.")
+st.info(
+    "📚 Just a learning project. Try made-up examples like:\n\n"
+    "- My laptop won't connect to the office Wi-Fi\n"
+    "- Outlook crashed AGAIN and I lost my work!!\n"
+    "- ကွန်ပျူတာ အင်တာနက် ချိတ်လို့ မရဘူး\n"
+    "- I cannot connect it (then answer the bot's question)\n"
+    "- What time is lunch?"
+)
 
 # Memory: the conversation lives here and is resent to the model every turn
 if "history" not in st.session_state:
