@@ -14,6 +14,24 @@ st.info(
     "- What time is lunch?"
 )
 
+# How each priority looks, and what it means in plain words
+PRIORITY_STYLE = {
+    "high": ("red", "🔴", "You can't work at all, or this is urgent. IT will look at it first."),
+    "medium": ("orange", "🟠", "Your work is slowed down. IT will pick it up soon."),
+    "low": ("blue", "🔵", "A minor issue, or the bot still needs more detail from you."),
+}
+CATEGORY_ICON = {"hardware": "🖥️", "network": "📶", "account": "🔑", "software": "💾", "other": "❓"}
+
+
+def ticket_badges(ticket):
+    """Coloured tags for priority and category, e.g. [🔴 High priority] [📶 Network]."""
+    priority = ticket["priority"].lower()
+    color, dot, _ = PRIORITY_STYLE.get(priority, ("gray", "⚪", ""))
+    category = ticket["category"].lower()
+    icon = CATEGORY_ICON.get(category, "❓")
+    return f":{color}-badge[{dot} {priority.title()} priority] :gray-badge[{icon} {category.title()}]"
+
+
 # Memory: the conversation lives here and is resent to the model every turn
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -29,7 +47,10 @@ for turn in st.session_state.history:
     if turn["role"] == "user":
         st.chat_message("user").write(turn["text"])
     else:
-        st.chat_message("assistant").write(json.loads(turn["text"])["reply"])
+        turn_ticket = json.loads(turn["text"])
+        with st.chat_message("assistant"):
+            st.write(turn_ticket["reply"])
+            st.markdown(ticket_badges(turn_ticket))
 
 message = st.chat_input("Describe your IT issue, or answer the bot's question")
 
@@ -55,17 +76,18 @@ if message:
 ticket = st.session_state.ticket
 if ticket:
     st.divider()
-    st.subheader("Current ticket")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Language", ticket["language"])
-    col2.metric("Category", ticket["category"])
-    col3.metric("Priority", ticket["priority"].upper())
-    col4.metric("Frustrated", "Yes" if ticket["frustrated"] else "No")
-
-    st.markdown("**How the AI reasoned before deciding priority**")
-    st.write(ticket["reasoning"])
-    st.markdown("**Summary for IT team**")
-    st.write(ticket["summary_en"])
+    st.subheader("🎫 Your ticket")
+    st.caption("This is what gets sent to the IT team. It updates as you add details.")
+    with st.container(border=True):
+        mood = ":orange-badge[😤 Sounds frustrated]" if ticket["frustrated"] else ""
+        st.markdown(f"{ticket_badges(ticket)} :gray-badge[🌐 {ticket['language']}] {mood}")
+        meaning = PRIORITY_STYLE.get(ticket["priority"].lower(), ("", "", ""))[2]
+        if meaning:
+            st.markdown(f"**What this priority means:** {meaning}")
+        st.markdown("**Summary for the IT team**")
+        st.write(ticket["summary_en"])
+        with st.expander("🧠 Why the AI chose this priority"):
+            st.write(ticket["reasoning"])
 
     if st.button("📧 Convert ticket to an HTML email"):
         with st.status("Converting ticket to an HTML email...", expanded=True) as status:
