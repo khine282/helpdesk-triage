@@ -8,8 +8,9 @@ st.title("🛠️ Multilingual IT Helpdesk Triage")
 st.caption("Chat in Burmese, English, Chinese, Malay, or a mix.")
 st.info(
     "👤 **You are an employee** reporting an IT problem. The assistant asks for "
-    "anything IT needs, suggests quick things to try, and opens a ticket.\n\n"
-    "👩‍💻 Turn on **IT team view** to see the ticket the IT team receives.\n\n"
+    "anything IT needs, suggests quick things to try, and opens a ticket. "
+    "Pick a demo account in the sidebar.\n\n"
+    "👩‍💻 Turn on **IT team view** to switch to the IT side and see the ticket they receive.\n\n"
     "📚 Just a learning project. Try made-up examples like:\n\n"
     "- My laptop won't connect to the office Wi-Fi since this morning\n"
     "- Outlook crashes every time I open an attachment and I lost my work!!\n"
@@ -38,6 +39,16 @@ REPLY_LABELS = {
 # Ticket details IT needs, and how to label them in the ticket card
 DETAILS = [("summary_en", "Problem"), ("device", "Device"), ("error_message", "Error message"),
            ("started", "Started"), ("tried_already", "Already tried")]
+# Nice to have, but IT can start without them
+OPTIONAL_DETAILS = {"error_message", "started", "tried_already"}
+
+# Placeholder accounts. A real helpdesk would get these from the login system,
+# so the employee never has to type who they are or which department they are in.
+DEMO_USERS = {
+    "EMP-1024": {"name": "Demo User 1", "department": "Finance", "office": "Singapore"},
+    "EMP-2048": {"name": "Demo User 2", "department": "Operations", "office": "Yangon"},
+    "EMP-4096": {"name": "Demo User 3", "department": "Sales", "office": "Singapore"},
+}
 
 
 def ticket_badges(ticket):
@@ -66,8 +77,15 @@ def reply_markdown(ticket):
     return "\n\n".join(parts)
 
 
-def detail_value(value):
-    return "❓ *Not provided yet*" if value.strip().lower() in ("", "unknown") else value
+def detail_value(key, value):
+    if value.strip().lower() not in ("", "unknown"):
+        return value
+    return "*Not given (optional)*" if key in OPTIONAL_DETAILS else "❓ *Not provided yet*"
+
+
+def reporter_text(user_id):
+    user = DEMO_USERS[user_id]
+    return f"{user['name']} ({user_id}), {user['department']}, {user['office']} office"
 
 
 def is_old_format(state):
@@ -82,35 +100,39 @@ if "history" not in st.session_state or is_old_format(st.session_state):
     st.session_state.ticket = None
     st.session_state.ticket_id = None
 
+user_id = st.sidebar.selectbox("🔐 Signed in as (demo account)", list(DEMO_USERS),
+                               format_func=reporter_text)
+st.sidebar.caption("Placeholder accounts. A real system would use the company login.")
+
 col1, col2 = st.columns(2)
 if col1.button("🔄 Start a new ticket"):
     st.session_state.history = []
     st.session_state.ticket = None
     st.session_state.ticket_id = None
     st.rerun()
-it_view = col2.toggle("👩‍💻 IT team view", help="Show the ticket the IT team receives")
+it_view = col2.toggle("👩‍💻 IT team view", help="See the ticket the IT team receives, instead of the chat")
 
-# Show the conversation so far
-ticket_announced = False
-for turn in st.session_state.history:
-    if turn["role"] == "user":
-        st.chat_message("user").write(turn["text"])
-        continue
-    turn_ticket = json.loads(turn["text"])
-    with st.chat_message("assistant"):
-        st.markdown(reply_markdown(turn_ticket))
-        # Tell the employee once, like a helpdesk confirmation email, when their ticket is opened
-        if is_ready(turn_ticket) and not ticket_announced:
-            labels = REPLY_LABELS.get(turn_ticket["language"], REPLY_LABELS["English"])
-            created = labels["created"].format(id=st.session_state.ticket_id)
-            st.success(f"✅ **{created}:** {turn_ticket['title_user']}")
-            ticket_announced = True
-        if it_view:
-            st.markdown(ticket_badges(turn_ticket))
 
-message = st.chat_input("Describe your IT problem, or answer the questions above")
+def show_employee_view():
+    """The chat, as the employee sees it: replies and a ticket confirmation, nothing internal."""
+    ticket_announced = False
+    for turn in st.session_state.history:
+        if turn["role"] == "user":
+            st.chat_message("user").write(turn["text"])
+            continue
+        turn_ticket = json.loads(turn["text"])
+        with st.chat_message("assistant"):
+            st.markdown(reply_markdown(turn_ticket))
+            # Tell the employee once, like a helpdesk confirmation email, when their ticket is opened
+            if is_ready(turn_ticket) and not ticket_announced:
+                labels = REPLY_LABELS.get(turn_ticket["language"], REPLY_LABELS["English"])
+                created = labels["created"].format(id=st.session_state.ticket_id)
+                st.success(f"✅ **{created}:** {turn_ticket['title_user']}")
+                ticket_announced = True
 
-if message:
+    message = st.chat_input("Describe your IT problem, or answer the questions above")
+    if not message:
+        return
     st.session_state.history.append({"role": "user", "text": message})
     st.chat_message("user").write(message)
     # Show each step live so the user can see the app is working, not stuck
@@ -130,11 +152,14 @@ if message:
         st.session_state.ticket_id = f"HD-{random.randint(1000, 9999)}"
     st.rerun()
 
-# IT team view: the full ticket, which the employee does not normally see
-ticket = st.session_state.ticket
-if it_view and ticket:
-    st.divider()
-    st.subheader(f"👩‍💻 IT team view: ticket {st.session_state.ticket_id}")
+
+def show_it_view():
+    """The full ticket, as the IT team sees it. The employee does not see any of this."""
+    ticket = st.session_state.ticket
+    if not ticket:
+        st.info("No ticket yet. Turn off IT team view and describe a problem as the employee first.")
+        return
+    st.subheader(f"🎫 Ticket {st.session_state.ticket_id}")
     st.caption("What the IT team receives. It updates as the employee adds details.")
     with st.container(border=True):
         st.markdown(f"#### {ticket['title_en']}")
@@ -150,16 +175,26 @@ if it_view and ticket:
         if meaning:
             st.markdown(f"**What this priority means:** {meaning}")
 
-        st.markdown("**What IT knows so far**")
-        rows = "\n".join(f"| **{label}** | {detail_value(ticket[key])} |" for key, label in DETAILS)
-        st.markdown(f"| | |\n|---|---|\n{rows}")
+        st.markdown("**Ticket details**")
+        rows = [f"| **Reported by** | {reporter_text(user_id)} |"]
+        rows += [f"| **{label}** | {detail_value(key, ticket[key])} |" for key, label in DETAILS]
+        st.markdown("| | |\n|---|---|\n" + "\n".join(rows))
         with st.expander("🧠 Why the AI chose this priority"):
             st.write(ticket["reasoning"])
+        with st.expander("💬 Conversation with the employee"):
+            for turn in st.session_state.history:
+                if turn["role"] == "user":
+                    st.markdown(f"**Employee:** {turn['text']}")
+                else:
+                    turn_ticket = json.loads(turn["text"])
+                    st.markdown(f"**Assistant:** {turn_ticket['acknowledgement']}  \n{ticket_badges(turn_ticket)}")
 
     if st.button("📧 Convert ticket to an HTML email"):
         # Only the facts IT needs, not the chat reply
+        user = DEMO_USERS[user_id]
         for_it = {"ticket_id": st.session_state.ticket_id, "title": ticket["title_en"],
-                  "priority": ticket["priority"], "category": ticket["category"],
+                  "reported_by": f"{user['name']} ({user_id})", "department": user["department"],
+                  "office": user["office"], "priority": ticket["priority"], "category": ticket["category"],
                   "language": ticket["language"], "frustrated": ticket["frustrated"],
                   **{label: ticket[key] for key, label in DETAILS}}
         with st.status("Converting ticket to an HTML email...", expanded=True) as status:
@@ -174,3 +209,9 @@ if it_view and ticket:
                 st.code(html, language="html")
         else:
             st.error("Conversion failed. Please try again.")
+
+
+if it_view:
+    show_it_view()
+else:
+    show_employee_view()
