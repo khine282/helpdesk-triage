@@ -1,12 +1,14 @@
 import sys
 import json
 import time
+import httpx
 from google import genai
 from google.genai import types, errors
 from dotenv import load_dotenv
 
 load_dotenv()
-client = genai.Client()
+# Give up on a hung request after 20 seconds (value is in milliseconds)
+client = genai.Client(http_options=types.HttpOptions(timeout=20_000))
 
 # Tried in order: if one is busy or unavailable, the next one is used
 MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
@@ -61,6 +63,8 @@ def _call_model(contents, system):
             except errors.APIError as e:
                 print(f"{model} failed ({e.code}), retrying...")
                 time.sleep(3)
+            except httpx.TimeoutException:
+                print(f"{model} timed out, retrying...")
         print(f"Switching away from {model}")
     return None
 
