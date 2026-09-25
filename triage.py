@@ -46,9 +46,18 @@ Return ONLY a JSON object with keys in this order: language, reasoning,
 category, frustrated, priority, summary_en, reply."""
 
 
-def _call_model(contents, system):
-    """Try each model once; move on straight away if one is busy, slow, or unavailable."""
-    for model in MODELS:
+def _silent(message):
+    pass
+
+
+def _call_model(contents, system, on_status=_silent):
+    """Try each model once; move on straight away if one is busy, slow, or unavailable.
+    on_status receives short progress messages so the UI can show what is happening."""
+    for i, model in enumerate(MODELS):
+        if i > 0:
+            on_status(f"Switching to backup model `{model}`...")
+        else:
+            on_status(f"Asking the AI model `{model}`...")
         start = time.perf_counter()
         try:
             response = client.models.generate_content(
@@ -60,18 +69,23 @@ def _call_model(contents, system):
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 ),
             )
-            print(f"Answered by {model} in {time.perf_counter() - start:.1f}s")
+            elapsed = time.perf_counter() - start
+            print(f"Answered by {model} in {elapsed:.1f}s")
+            on_status(f"Got an answer in {elapsed:.1f}s")
             return response.text
         except errors.APIError as e:
             print(f"{model} failed ({e.code}) after {time.perf_counter() - start:.1f}s")
+            on_status(f"`{model}` is busy or unavailable (error {e.code})")
         except httpx.TimeoutException:
             print(f"{model} timed out, switching model")
+            on_status(f"`{model}` took too long to answer")
     return None
 
 
-def triage(history):
+def triage(history, on_status=_silent):
     """history is a list of turns: {"role": "user" or "model", "text": "..."}.
-    A plain string also works, for single messages (used by eval.py)."""
+    A plain string also works, for single messages (used by eval.py).
+    on_status is called with progress messages (the app shows them live)."""
     if isinstance(history, str):
         history = [{"role": "user", "text": history}]
 
@@ -83,9 +97,11 @@ def triage(history):
             text = f"<message>{text}</message>"
         contents.append(types.Content(role=turn["role"], parts=[types.Part(text=text)]))
 
-    text = _call_model(contents, SYSTEM)
+    on_status(f"Sending the conversation ({len(history)} message(s)) for triage")
+    text = _call_model(contents, SYSTEM, on_status)
     if text is None:
         return None
+    on_status("Reading the ticket details from the answer")
     text = text[text.find("{"): text.rfind("}") + 1]
     try:
         return json.loads(text)
@@ -93,14 +109,14 @@ def triage(history):
         return None
 
 
-def ticket_to_html(ticket):
+def ticket_to_html(ticket, on_status=_silent):
     """Format conversion: turn the JSON ticket into an HTML email for IT."""
     prompt = f"""Convert the JSON ticket delimited by <ticket> tags into an HTML
 email for the IT team. Include a short title, a one-line greeting, and a table
 with one row per field (column headers: Field, Value). Keep the reply text in
 its original language. Return ONLY the HTML.
 <ticket>{json.dumps(ticket, ensure_ascii=False)}</ticket>"""
-    html = _call_model(prompt, "You convert data between formats accurately.")
+    html = _call_model(prompt, "You convert data between formats accurately.", on_status)
     if html is None:
         return None
     return html[html.find("<"): html.rfind(">") + 1]
