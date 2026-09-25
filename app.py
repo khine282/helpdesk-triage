@@ -1,7 +1,7 @@
 import json
 import random
 import streamlit as st
-from triage import triage, ticket_to_html
+from triage import Ticket, triage, ticket_to_html
 
 st.set_page_config(page_title="IT Helpdesk Triage", page_icon="🛠️")
 st.title("🛠️ Multilingual IT Helpdesk Triage")
@@ -61,8 +61,14 @@ def detail_value(value):
     return "❓ *Not provided yet*" if value.strip().lower() in ("", "unknown") else value
 
 
+def is_old_format(state):
+    """A browser tab opened before an app update may hold a ticket without the current fields."""
+    ticket = state.get("ticket")
+    return "ticket_id" not in state or (ticket is not None and not set(Ticket.model_fields) <= set(ticket))
+
+
 # Memory: the conversation lives here and is resent to the model every turn
-if "history" not in st.session_state:
+if "history" not in st.session_state or is_old_format(st.session_state):
     st.session_state.history = []
     st.session_state.ticket = None
     st.session_state.ticket_id = None
