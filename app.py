@@ -7,6 +7,9 @@ st.set_page_config(page_title="IT Helpdesk Triage", page_icon="🛠️")
 st.title("🛠️ Multilingual IT Helpdesk Triage")
 st.caption("Chat in Burmese, English, Chinese, Malay, or a mix.")
 st.info(
+    "👤 **You are an employee** reporting an IT problem. The assistant asks for "
+    "anything IT needs, suggests quick things to try, and opens a ticket.\n\n"
+    "👩‍💻 Turn on **IT team view** to see the ticket the IT team receives.\n\n"
     "📚 Just a learning project. Try made-up examples like:\n\n"
     "- My laptop won't connect to the office Wi-Fi since this morning\n"
     "- Outlook crashes every time I open an attachment and I lost my work!!\n"
@@ -15,20 +18,21 @@ st.info(
     "- Saya lupa kata laluan dan tidak boleh log masuk ke komputer"
 )
 
-# How each priority looks, and what it means in plain words
+# How each priority looks, and what it means for the IT team
 PRIORITY_STYLE = {
-    "high": ("red", "🔴", "You can't work at all, or this is urgent. IT will look at it first."),
-    "medium": ("orange", "🟠", "Your work is slowed down. IT will handle it after urgent issues."),
-    "low": ("blue", "🔵", "A minor issue, or we still need more details from you."),
+    "high": ("red", "🔴", "The employee can't work at all, or it's urgent. Handle first."),
+    "medium": ("orange", "🟠", "The employee's work is slowed down. Handle after urgent tickets."),
+    "low": ("blue", "🔵", "A minor issue, or still waiting for details from the employee."),
 }
 CATEGORY_ICON = {"hardware": "🖥️", "network": "📶", "account": "🔑", "software": "💾", "other": "❓"}
 
-# Section headings in the bot's reply, in the user's language (English otherwise)
+# Fixed wording in the bot's reply, in the user's language (English otherwise)
 REPLY_LABELS = {
-    "English": ("Please tell me:", "You can try this now:"),
-    "Burmese": ("ကျေးဇူးပြု၍ ပြောပြပေးပါ -", "အခု စမ်းကြည့်နိုင်တာတွေ -"),
-    "Chinese": ("请告诉我：", "您现在可以先试试："),
-    "Malay": ("Sila beritahu saya:", "Anda boleh cuba sekarang:"),
+    "English": {"ask": "Please tell me:", "try": "You can try this now:", "created": "Ticket {id} created"},
+    "Burmese": {"ask": "ကျေးဇူးပြု၍ ပြောပြပေးပါ -", "try": "အခု စမ်းကြည့်နိုင်တာတွေ -",
+                "created": "Ticket {id} ဖွင့်ပြီးပါပြီ"},
+    "Chinese": {"ask": "请告诉我：", "try": "您现在可以先试试：", "created": "已创建工单 {id}"},
+    "Malay": {"ask": "Sila beritahu saya:", "try": "Anda boleh cuba sekarang:", "created": "Tiket {id} telah dibuka"},
 }
 
 # Ticket details IT needs, and how to label them in the ticket card
@@ -45,14 +49,19 @@ def ticket_badges(ticket):
     return f":{color}-badge[{dot} {priority.title()} priority] :gray-badge[{icon} {category.title()}]"
 
 
+def is_ready(ticket):
+    """The ticket can go to IT: it is an IT problem and nothing important is missing."""
+    return ticket["is_it_issue"] and not ticket["needs_more_info"]
+
+
 def reply_markdown(ticket):
     """The bot's reply in clear parts: what we understood, questions, things to try, next step."""
-    ask_label, try_label = REPLY_LABELS.get(ticket["language"], REPLY_LABELS["English"])
+    labels = REPLY_LABELS.get(ticket["language"], REPLY_LABELS["English"])
     parts = [ticket["acknowledgement"]]
     if ticket["questions"]:
-        parts.append(f"**❓ {ask_label}**\n\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(ticket["questions"], 1)))
+        parts.append(f"**❓ {labels['ask']}**\n\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(ticket["questions"], 1)))
     if ticket["try_now"]:
-        parts.append(f"**🔧 {try_label}**\n\n" + "\n".join(f"{i}. {s}" for i, s in enumerate(ticket["try_now"], 1)))
+        parts.append(f"**🔧 {labels['try']}**\n\n" + "\n".join(f"{i}. {s}" for i, s in enumerate(ticket["try_now"], 1)))
     parts.append(f"➡️ {ticket['next_step']}")
     return "\n\n".join(parts)
 
@@ -73,34 +82,44 @@ if "history" not in st.session_state or is_old_format(st.session_state):
     st.session_state.ticket = None
     st.session_state.ticket_id = None
 
-if st.button("🔄 Start a new ticket"):
+col1, col2 = st.columns(2)
+if col1.button("🔄 Start a new ticket"):
     st.session_state.history = []
     st.session_state.ticket = None
     st.session_state.ticket_id = None
     st.rerun()
+it_view = col2.toggle("👩‍💻 IT team view", help="Show the ticket the IT team receives")
 
 # Show the conversation so far
+ticket_announced = False
 for turn in st.session_state.history:
     if turn["role"] == "user":
         st.chat_message("user").write(turn["text"])
-    else:
-        turn_ticket = json.loads(turn["text"])
-        with st.chat_message("assistant"):
-            st.markdown(reply_markdown(turn_ticket))
+        continue
+    turn_ticket = json.loads(turn["text"])
+    with st.chat_message("assistant"):
+        st.markdown(reply_markdown(turn_ticket))
+        # Tell the employee once, like a helpdesk confirmation email, when their ticket is opened
+        if is_ready(turn_ticket) and not ticket_announced:
+            labels = REPLY_LABELS.get(turn_ticket["language"], REPLY_LABELS["English"])
+            created = labels["created"].format(id=st.session_state.ticket_id)
+            st.success(f"✅ **{created}:** {turn_ticket['title_user']}")
+            ticket_announced = True
+        if it_view:
             st.markdown(ticket_badges(turn_ticket))
 
-message = st.chat_input("Describe your IT issue, or answer the questions above")
+message = st.chat_input("Describe your IT problem, or answer the questions above")
 
 if message:
     st.session_state.history.append({"role": "user", "text": message})
     st.chat_message("user").write(message)
     # Show each step live so the user can see the app is working, not stuck
-    with st.status("Triaging your message...", expanded=True) as status:
+    with st.status("Working on your request...", expanded=True) as status:
         ticket = triage(st.session_state.history, on_status=st.write)
         if ticket is None:
-            status.update(label="Could not triage your message", state="error")
+            status.update(label="Could not process your message", state="error")
         else:
-            status.update(label="Ticket ready", state="complete", expanded=False)
+            status.update(label="Done", state="complete", expanded=False)
     if ticket is None:
         st.session_state.history.pop()
         st.error("Sorry, the assistant could not process your message right now. Please send it again.")
@@ -111,16 +130,18 @@ if message:
         st.session_state.ticket_id = f"HD-{random.randint(1000, 9999)}"
     st.rerun()
 
-# Show the latest version of the ticket
+# IT team view: the full ticket, which the employee does not normally see
 ticket = st.session_state.ticket
-if ticket:
+if it_view and ticket:
     st.divider()
-    st.subheader(f"🎫 Ticket {st.session_state.ticket_id}")
-    st.caption("This is what gets sent to the IT team. It updates as you add details.")
+    st.subheader(f"👩‍💻 IT team view: ticket {st.session_state.ticket_id}")
+    st.caption("What the IT team receives. It updates as the employee adds details.")
     with st.container(border=True):
         st.markdown(f"#### {ticket['title_en']}")
-        if ticket["needs_more_info"]:
-            state = ":orange-badge[⏳ Waiting for your answer]"
+        if not ticket["is_it_issue"]:
+            state = ":gray-badge[🚫 Not an IT issue, no ticket needed]"
+        elif ticket["needs_more_info"]:
+            state = ":orange-badge[⏳ Waiting for the employee's answer]"
         else:
             state = ":green-badge[✅ Ready for the IT team]"
         mood = ":orange-badge[😤 Sounds frustrated]" if ticket["frustrated"] else ""

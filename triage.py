@@ -24,6 +24,7 @@ class Ticket(BaseModel):
     language: Literal["English", "Burmese", "Chinese", "Malay", "Mixed", "Other"]
     reasoning: str
     category: Literal["hardware", "network", "account", "software", "other"]
+    is_it_issue: bool
     frustrated: bool
     priority: Literal["high", "medium", "low"]
     needs_more_info: bool
@@ -35,6 +36,7 @@ class Ticket(BaseModel):
     started: str
     tried_already: str
     # The reply to the user, in clear parts, all in the user's language
+    title_user: str = Field(description="The ticket title, in the user's language")
     acknowledgement: str = Field(description="In the user's language")
     questions: list[str] = Field(description="Each item in the user's language")
     try_now: list[str] = Field(description="Each item in the user's language")
@@ -54,6 +56,7 @@ Perform these steps in order:
    user's work. Do not decide the category or priority until you have done this.
 3. Classify the issue as one of: hardware, network, account, software, other.
    If it is not an IT issue, or still too vague to classify, use "other".
+   Set is_it_issue to false only if it is clearly not an IT problem.
 4. Detect whether the user sounds frustrated (true or false).
 5. Using your reasoning from step 2, set priority: high if the user cannot
    work at all OR sounds frustrated, medium if work is slowed down, low otherwise.
@@ -66,7 +69,8 @@ Perform these steps in order:
    - device, error_message, started (when it started), tried_already (what
      the user already tried)
    Use only facts the user gave. Write "unknown" for anything not said. Never guess.
-8. Write the reply to the user. EVERY part (acknowledgement, each question,
+8. Write the reply to the user. title_user is the same short title as
+   title_en, in the user's language. EVERY part (acknowledgement, each question,
    each try_now step, next_step) must be in the SAME language as the user's
    latest message. The examples below are in English only to show the idea;
    translate them. For "Mixed", use the main language of the message.
