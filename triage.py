@@ -88,7 +88,6 @@ def _call_model(contents, system, on_status=_silent, schema=None):
                 ),
             )
             elapsed = time.perf_counter() - start
-            print(f"Answered by {model} in {elapsed:.1f}s")
             on_status(f"Got an answer in {elapsed:.1f}s")
             return response.text
         except errors.APIError as e:

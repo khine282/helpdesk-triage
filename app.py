@@ -7,11 +7,11 @@ st.title("🛠️ Multilingual IT Helpdesk Triage")
 st.caption("Chat in Burmese, English, Chinese, Malay, or a mix.")
 st.info(
     "📚 Just a learning project. Try made-up examples like:\n\n"
-    "- My laptop won't connect to the office Wi-Fi\n"
-    "- Outlook crashed AGAIN and I lost my work!!\n"
+    "- My laptop won't connect to the office Wi-Fi since this morning\n"
+    "- Outlook crashes every time I open an attachment and I lost my work!!\n"
     "- ကွန်ပျူတာ အင်တာနက် ချိတ်လို့ မရဘူး\n"
-    "- I cannot connect it (then answer the bot's question)\n"
-    "- What time is lunch?"
+    "- 我的打印机不能打印\n"
+    "- Saya lupa kata laluan dan tidak boleh log masuk ke komputer"
 )
 
 # How each priority looks, and what it means in plain words
