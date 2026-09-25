@@ -2,6 +2,8 @@ import sys
 import json
 import time
 import httpx
+from typing import Literal
+from pydantic import BaseModel
 from google import genai
 from google.genai import types, errors
 from dotenv import load_dotenv
@@ -15,13 +17,27 @@ client = genai.Client(http_options=types.HttpOptions(timeout=20_000))
 # flash models were often busy (503) or took 10-17s.
 MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
+
+class Ticket(BaseModel):
+    """JSON mode: the model must answer with exactly these fields and values.
+    Field order matters: reasoning comes before category and priority."""
+    language: Literal["English", "Burmese", "Chinese", "Malay", "Mixed", "Other"]
+    reasoning: str
+    category: Literal["hardware", "network", "account", "software", "other"]
+    frustrated: bool
+    priority: Literal["high", "medium", "low"]
+    summary_en: str
+    reply: str
+
+
 SYSTEM = """You are an IT helpdesk triage assistant for a company with staff
 in Singapore and Myanmar. You will receive a conversation. Each user message
 is delimited by <message> tags. Use ALL of the user's messages together,
 because later messages may add details the user left out earlier.
 
 Perform these steps in order:
-1. Detect the language of the user's latest message.
+1. Detect the language of the user's latest message. Use "Mixed" if it
+   mixes languages, and "Other" for any language not in the list.
 2. Before deciding anything else, work out your own reasoning: in one or two
    English sentences, explain what the problem is and how much it blocks the
    user's work. Do not decide the category or priority until you have done this.
@@ -36,23 +52,23 @@ Perform these steps in order:
    (for example, it does not say which device), set category to "other" and
    priority to "low", and ask ONE short clarifying question. If it is not an
    IT issue, politely say this helpdesk only handles IT problems.
-8. Do not promise fixes or timelines you cannot guarantee.
+8. Do not promise fixes or timelines you cannot guarantee. You may say the
+   ticket has been passed to the IT team, but never say how fast they will
+   respond (no "immediately", "right away", "soon", or "within X minutes").
 
 Example of a good Burmese reply:
 <message>ပရင်တာ မထွက်ဘူး</message>
-Reply: ပရင်တာ ပြဿနာအတွက် စိတ်မကောင်းပါဘူး။ IT အဖွဲ့ကို အကြောင်းကြားပြီးပါပြီ၊ မကြာခင် ဆက်သွယ်ပါလိမ့်မယ်။
-
-Return ONLY a JSON object with keys in this order: language, reasoning,
-category, frustrated, priority, summary_en, reply."""
+Reply: ပရင်တာ ပြဿနာအတွက် စိတ်မကောင်းပါဘူး။ IT အဖွဲ့ကို အကြောင်းကြားပြီးပါပြီ၊ ဆက်သွယ်ပါလိမ့်မယ်။"""
 
 
 def _silent(message):
     pass
 
 
-def _call_model(contents, system, on_status=_silent):
+def _call_model(contents, system, on_status=_silent, schema=None):
     """Try each model once; move on straight away if one is busy, slow, or unavailable.
-    on_status receives short progress messages so the UI can show what is happening."""
+    on_status receives short progress messages so the UI can show what is happening.
+    If schema is given, JSON mode is on and the answer must match it."""
     for i, model in enumerate(MODELS):
         if i > 0:
             on_status(f"Switching to backup model `{model}`...")
@@ -66,6 +82,8 @@ def _call_model(contents, system, on_status=_silent):
                 config=types.GenerateContentConfig(
                     system_instruction=system,
                     temperature=0,
+                    response_mime_type="application/json" if schema else None,
+                    response_schema=schema,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 ),
             )
@@ -98,14 +116,14 @@ def triage(history, on_status=_silent):
         contents.append(types.Content(role=turn["role"], parts=[types.Part(text=text)]))
 
     on_status(f"Sending the conversation ({len(history)} message(s)) for triage")
-    text = _call_model(contents, SYSTEM, on_status)
+    text = _call_model(contents, SYSTEM, on_status, schema=Ticket)
     if text is None:
         return None
     on_status("Reading the ticket details from the answer")
-    text = text[text.find("{"): text.rfind("}") + 1]
+    # JSON mode means the answer is already clean JSON; still check it fits
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
+        return Ticket.model_validate_json(text).model_dump()
+    except ValueError:
         return None
 
 
