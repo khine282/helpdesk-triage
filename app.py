@@ -1,7 +1,8 @@
 import json
 import random
+from urllib.parse import quote
 import streamlit as st
-from triage import Ticket, triage, ticket_to_html
+from triage import Ticket, triage, ticket_to_html, draft_contact_email
 
 st.set_page_config(page_title="IT Helpdesk Triage", page_icon="🛠️")
 st.title("🛠️ Multilingual IT Helpdesk Triage")
@@ -45,9 +46,12 @@ FOLLOW_UP_DETAILS = {"error_message", "started", "tried_already"}
 # Placeholder accounts. A real helpdesk would get these from the login system,
 # so the employee never has to type who they are or which department they are in.
 DEMO_USERS = {
-    "EMP-1024": {"name": "Demo User 1", "department": "Finance", "office": "Singapore"},
-    "EMP-2048": {"name": "Demo User 2", "department": "Operations", "office": "Yangon"},
-    "EMP-4096": {"name": "Demo User 3", "department": "Sales", "office": "Singapore"},
+    "EMP-1024": {"name": "Demo User 1", "department": "Finance", "office": "Singapore",
+                 "email": "demo.user1@example.com"},
+    "EMP-2048": {"name": "Demo User 2", "department": "Operations", "office": "Yangon",
+                 "email": "demo.user2@example.com"},
+    "EMP-4096": {"name": "Demo User 3", "department": "Sales", "office": "Singapore",
+                 "email": "demo.user3@example.com"},
 }
 
 
@@ -153,6 +157,42 @@ def show_employee_view():
     st.rerun()
 
 
+def show_contact_employee(ticket):
+    """IT can't see attachments here, so they email the employee for a screenshot.
+    The LLM drafts the email in the employee's language; IT reviews it and opens it in their mail app."""
+    user = DEMO_USERS[user_id]
+    # A draft belongs to one version of the conversation; a new message makes it stale
+    draft_key = (st.session_state.ticket_id, user_id, len(st.session_state.history))
+    draft = st.session_state.get("contact_email")
+    if draft and draft["key"] != draft_key:
+        draft = None
+
+    if st.button("✉️ Draft an email to the employee",
+                 help="Ask the employee for a screenshot and any missing details, in their language"):
+        employee_messages = [t["text"] for t in st.session_state.history if t["role"] == "user"]
+        with st.status("Drafting the email...", expanded=True) as status:
+            email = draft_contact_email(ticket, st.session_state.ticket_id, user["name"],
+                                        employee_messages, on_status=st.write)
+            if email:
+                status.update(label="Draft ready", state="complete", expanded=False)
+            else:
+                status.update(label="Could not draft the email", state="error")
+        if email:
+            draft = {"key": draft_key, "email": email}
+            st.session_state.contact_email = draft
+        else:
+            st.error("Could not draft the email. Please try again.")
+
+    if draft:
+        email = draft["email"]
+        with st.container(border=True):
+            st.markdown(f"**To:** {user['email']}  \n**Subject:** {email['subject']}")
+            st.text(email["body"])
+            mailto = (f"mailto:{user['email']}?subject={quote(email['subject'])}"
+                      f"&body={quote(email['body'])}")
+            st.link_button("📨 Open in my email app", mailto)
+
+
 def show_it_view():
     """The full ticket, as the IT team sees it. The employee does not see any of this."""
     ticket = st.session_state.ticket
@@ -188,6 +228,8 @@ def show_it_view():
                 else:
                     turn_ticket = json.loads(turn["text"])
                     st.markdown(f"**Assistant:** {turn_ticket['acknowledgement']}  \n{ticket_badges(turn_ticket)}")
+
+    show_contact_employee(ticket)
 
     if st.button("📧 Convert ticket to an HTML email"):
         # Only the facts IT needs, not the chat reply

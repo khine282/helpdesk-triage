@@ -237,6 +237,50 @@ its original language. Return ONLY the HTML.
     return html[html.find("<"): html.rfind(">") + 1]
 
 
+# Plain questions for the details IT may still be missing, used in the contact email
+DETAIL_QUESTIONS = {
+    "error_message": "What exactly does the error message say?",
+    "started": "When did the problem start?",
+    "tried_already": "What have you already tried?",
+}
+
+
+class ContactEmail(BaseModel):
+    subject: str
+    body: str
+
+
+def draft_contact_email(ticket, ticket_id, employee_name, employee_messages, on_status=_silent):
+    """Draft an email from IT to the employee, in the employee's language, asking for a
+    screenshot of the error and any details still missing. Returns {"subject", "body"}."""
+    missing = [DETAIL_QUESTIONS[key] for key in FOLLOW_UP_QUESTIONS["English"]
+               if ticket[key].strip().lower() in NOT_ANSWERED]
+    prompt = f"""Write a short, polite email from the IT helpdesk team to an employee
+about their ticket. Write it in {ticket["language"]}. If that is "Mixed" or "Other",
+use the main language of the employee's messages below.
+- Subject: the ticket number and the ticket title, translated.
+- Body, with a blank line between each part:
+  1. Greet the employee by name.
+  2. One sentence saying IT is looking at the problem.
+  3. Ask them to reply with a screenshot of the problem or error message.
+  4. Only if this list is not empty, ask these questions, each on its own line
+     starting with "- ", translated: {missing}
+  5. Sign off as "IT Helpdesk".
+- Do not promise how fast it will be fixed.
+<ticket_number>{ticket_id}</ticket_number>
+<employee_name>{employee_name}</employee_name>
+<ticket>{json.dumps({"title": ticket["title_en"], "summary": ticket["summary_en"]}, ensure_ascii=False)}</ticket>
+<employee_messages>{json.dumps(employee_messages, ensure_ascii=False)}</employee_messages>"""
+    text = _call_model(prompt, "You write clear, friendly emails for an IT helpdesk.", on_status,
+                       schema=ContactEmail)
+    if text is None:
+        return None
+    try:
+        return ContactEmail.model_validate_json(text).model_dump()
+    except ValueError:
+        return None
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     result = triage("ကျွန်တော့် ကွန်ပျူတာ အင်တာနက် ချိတ်လို့ မရဘူး")
