@@ -10,8 +10,10 @@ load_dotenv()
 # Give up on a hung request after 20 seconds (value is in milliseconds)
 client = genai.Client(http_options=types.HttpOptions(timeout=20_000))
 
-# Tried in order: if one is busy or unavailable, the next one is used
-MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
+# Tried in order: if one is busy or unavailable, the next one is used.
+# Lite models chosen after testing: ~1-3s and reliable, while the bigger
+# flash models were often busy (503) or took 10-17s.
+MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
 SYSTEM = """You are an IT helpdesk triage assistant for a company with staff
 in Singapore and Myanmar. You will receive a conversation. Each user message
@@ -45,27 +47,25 @@ category, frustrated, priority, summary_en, reply."""
 
 
 def _call_model(contents, system):
-    """Try each model in order; move on if one is busy or unavailable."""
+    """Try each model once; move on straight away if one is busy, slow, or unavailable."""
     for model in MODELS:
-        for _ in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system,
-                        temperature=0,
-                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                    ),
-                )
-                print(f"Answered by {model}")
-                return response.text
-            except errors.APIError as e:
-                print(f"{model} failed ({e.code}), retrying...")
-                time.sleep(3)
-            except httpx.TimeoutException:
-                print(f"{model} timed out, retrying...")
-        print(f"Switching away from {model}")
+        start = time.perf_counter()
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    temperature=0,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
+            print(f"Answered by {model} in {time.perf_counter() - start:.1f}s")
+            return response.text
+        except errors.APIError as e:
+            print(f"{model} failed ({e.code}) after {time.perf_counter() - start:.1f}s")
+        except httpx.TimeoutException:
+            print(f"{model} timed out, switching model")
     return None
 
 
