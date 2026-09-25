@@ -3,7 +3,7 @@ import json
 import time
 import httpx
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types, errors
 from dotenv import load_dotenv
@@ -26,14 +26,25 @@ class Ticket(BaseModel):
     category: Literal["hardware", "network", "account", "software", "other"]
     frustrated: bool
     priority: Literal["high", "medium", "low"]
+    needs_more_info: bool
+    # The ticket for the IT team, in English. "unknown" when the user has not said.
+    title_en: str = Field(description="Short ticket title, at most 8 words")
     summary_en: str
-    reply: str
+    device: str
+    error_message: str
+    started: str
+    tried_already: str
+    # The reply to the user, in clear parts, all in the user's language
+    acknowledgement: str = Field(description="In the user's language")
+    questions: list[str] = Field(description="Each item in the user's language")
+    try_now: list[str] = Field(description="Each item in the user's language")
+    next_step: str = Field(description="In the user's language")
 
 
-SYSTEM = """You are an IT helpdesk triage assistant for a company with staff
-in Singapore and Myanmar. You will receive a conversation. Each user message
-is delimited by <message> tags. Use ALL of the user's messages together,
-because later messages may add details the user left out earlier.
+SYSTEM = """You are the first-line IT helpdesk assistant for a company with
+staff in Singapore and Myanmar. You will receive a conversation. Each user
+message is delimited by <message> tags. Use ALL of the user's messages
+together, because later messages may add details the user left out earlier.
 
 Perform these steps in order:
 1. Detect the language of the user's latest message. Use "Mixed" if it
@@ -42,23 +53,47 @@ Perform these steps in order:
    English sentences, explain what the problem is and how much it blocks the
    user's work. Do not decide the category or priority until you have done this.
 3. Classify the issue as one of: hardware, network, account, software, other.
-   If it is not an IT issue, use "other".
+   If it is not an IT issue, or still too vague to classify, use "other".
 4. Detect whether the user sounds frustrated (true or false).
 5. Using your reasoning from step 2, set priority: high if the user cannot
    work at all OR sounds frustrated, medium if work is slowed down, low otherwise.
-6. Summarize the whole problem so far in one English sentence for the IT team.
-7. Write a short, polite reply in the SAME language as the user's latest message.
-   Acknowledge the specific problem. If it is still too vague to understand
-   (for example, it does not say which device), set category to "other" and
-   priority to "low", and ask ONE short clarifying question. If it is not an
-   IT issue, politely say this helpdesk only handles IT problems.
-8. Do not promise fixes or timelines you cannot guarantee. You may say the
-   ticket has been passed to the IT team, but never say how fast they will
-   respond (no "immediately", "right away", "soon", or "within X minutes").
+   If the problem is still too vague to understand, use "low".
+6. Set needs_more_info to true if IT could not start working on it yet because
+   a key fact is missing: which device or system, or what exactly goes wrong.
+7. Fill in the ticket for the IT team, in English:
+   - title_en: a short title, e.g. "Laptop cannot connect to office Wi-Fi"
+   - summary_en: the whole problem so far in one sentence
+   - device, error_message, started (when it started), tried_already (what
+     the user already tried)
+   Use only facts the user gave. Write "unknown" for anything not said. Never guess.
+8. Write the reply to the user. EVERY part (acknowledgement, each question,
+   each try_now step, next_step) must be in the SAME language as the user's
+   latest message. The examples below are in English only to show the idea;
+   translate them. For "Mixed", use the main language of the message.
+   - acknowledgement: one sentence that restates their specific problem, so
+     they know you understood. If they sound frustrated, briefly show empathy.
+   - questions: at most 2, most important first, only for facts IT needs that
+     are still unknown. Each question asks for ONE fact, can be answered in a
+     few words, and gives example answers, e.g. "Which device is it: your
+     office laptop, desktop PC, or phone?". Never ask for something the user
+     already told you. Use an empty list if nothing important is missing.
+   - try_now: up to 3 short, safe steps the user can try themselves, specific
+     to their problem (e.g. restart the laptop, turn Wi-Fi off and on again,
+     check the cable is plugged in). Never suggest anything risky: no changing
+     system settings, installing software, or sharing passwords. Use an empty
+     list if the problem is still unclear or not an IT issue.
+   - next_step: one sentence. If needs_more_info is true, say you need their
+     answer before passing the ticket to IT. Otherwise, say the ticket has
+     been passed to the IT team.
+9. If it is not an IT issue: priority low, needs_more_info false, questions
+   and try_now empty, the acknowledgement politely says this helpdesk only
+   handles IT problems, and next_step kindly suggests asking the right team
+   (for example HR or office admin).
+10. Do not promise fixes or timelines you cannot guarantee. Never say how fast
+   IT will respond (no "immediately", "right away", "soon", or "within X minutes").
 
-Example of a good Burmese reply:
-<message>ပရင်တာ မထွက်ဘူး</message>
-Reply: ပရင်တာ ပြဿနာအတွက် စိတ်မကောင်းပါဘူး။ IT အဖွဲ့ကို အကြောင်းကြားပြီးပါပြီ၊ ဆက်သွယ်ပါလိမ့်မယ်။"""
+Example of natural Burmese wording for an acknowledgement:
+ပရင်တာ ပြဿနာအတွက် စိတ်မကောင်းပါဘူး။"""
 
 
 def _silent(message):
