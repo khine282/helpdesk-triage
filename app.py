@@ -35,11 +35,17 @@ message = st.chat_input("Describe your IT issue, or answer the bot's question")
 
 if message:
     st.session_state.history.append({"role": "user", "text": message})
-    with st.spinner("Analysing..."):
-        ticket = triage(st.session_state.history)
+    st.chat_message("user").write(message)
+    # Show each step live so the user can see the app is working, not stuck
+    with st.status("Triaging your message...", expanded=True) as status:
+        ticket = triage(st.session_state.history, on_status=st.write)
+        if ticket is None:
+            status.update(label="Could not triage your message", state="error")
+        else:
+            status.update(label="Ticket ready", state="complete", expanded=False)
     if ticket is None:
         st.session_state.history.pop()
-        st.error("Could not read the model's response. Please try again.")
+        st.error("The AI models are busy or gave an unreadable answer. Please send your message again.")
         st.stop()
     st.session_state.history.append({"role": "model", "text": json.dumps(ticket, ensure_ascii=False)})
     st.session_state.ticket = ticket
@@ -62,8 +68,12 @@ if ticket:
     st.write(ticket["summary_en"])
 
     if st.button("📧 Convert ticket to an HTML email"):
-        with st.spinner("Converting format..."):
-            html = ticket_to_html(ticket)
+        with st.status("Converting ticket to an HTML email...", expanded=True) as status:
+            html = ticket_to_html(ticket, on_status=st.write)
+            if html:
+                status.update(label="Email ready", state="complete", expanded=False)
+            else:
+                status.update(label="Conversion failed", state="error")
         if html:
             st.markdown(html, unsafe_allow_html=True)
             with st.expander("See the HTML code"):
