@@ -39,8 +39,8 @@ REPLY_LABELS = {
 # Ticket details IT needs, and how to label them in the ticket card
 DETAILS = [("summary_en", "Problem"), ("device", "Device"), ("error_message", "Error message"),
            ("started", "Started"), ("tried_already", "Already tried")]
-# Nice to have, but IT can start without them
-OPTIONAL_DETAILS = {"error_message", "started", "tried_already"}
+# IT can start without these, and the assistant keeps asking for them after the ticket is opened
+FOLLOW_UP_DETAILS = {"error_message", "started", "tried_already"}
 
 # Placeholder accounts. A real helpdesk would get these from the login system,
 # so the employee never has to type who they are or which department they are in.
@@ -80,7 +80,7 @@ def reply_markdown(ticket):
 def detail_value(key, value):
     if value.strip().lower() not in ("", "unknown"):
         return value
-    return "*Not given (optional)*" if key in OPTIONAL_DETAILS else "❓ *Not provided yet*"
+    return "⏳ *Not answered yet*" if key in FOLLOW_UP_DETAILS else "❓ *Not provided yet*"
 
 
 def reporter_text(user_id):

@@ -31,10 +31,13 @@ class Ticket(BaseModel):
     # The ticket for the IT team, in English. "unknown" when the user has not said.
     title_en: str = Field(description="Short ticket title, at most 8 words")
     summary_en: str
-    device: str
-    error_message: str
-    started: str
-    tried_already: str
+    device: str = Field(description='"unknown" unless the user named the device or system')
+    error_message: str = Field(description='The exact error text the user quoted. "unknown" unless the '
+                                           'user mentioned an error message or explicitly said there is none')
+    started: str = Field(description='"unknown" unless the user said when it started')
+    tried_already: str = Field(description='"unknown" unless the user said what they tried')
+    # Checked before writing questions, so no missing detail is forgotten
+    missing_details: list[Literal["device", "problem", "error_message", "started", "tried_already"]]
     # The reply to the user, in clear parts, all in the user's language
     title_user: str = Field(description="The ticket title, in the user's language")
     acknowledgement: str = Field(description="In the user's language")
@@ -66,9 +69,19 @@ Perform these steps in order:
 7. Fill in the ticket for the IT team, in English:
    - title_en: a short title, e.g. "Laptop cannot connect to office Wi-Fi"
    - summary_en: the whole problem so far in one sentence
-   - device, error_message, started (when it started), tried_already (what
-     the user already tried)
-   Use only facts the user gave. Write "unknown" for anything not said. Never guess.
+   - device, error_message (the exact words of the error, as the user gave
+     them), started (when it started), tried_already (what the user already
+     tried)
+   Use only facts the user gave. Write "unknown" for anything not said. Never guess:
+   a crash or a failure does not tell you whether an error message appeared.
+   If the user says there is an error but not what it says, write "error shown,
+   wording unknown". Only if the user explicitly answers that there is no error
+   message, or that they don't know or didn't try anything, write exactly that
+   (e.g. "none shown", "user doesn't know", "nothing yet"); these count as answered.
+   Then set missing_details: every detail that is still "unknown" or "error
+   shown, wording unknown", in this order: device, problem (what exactly goes
+   wrong), error_message, started, tried_already. Leave it empty for a
+   non-IT issue.
 8. Write the reply to the user. title_user is the same short title as
    title_en, in the user's language. EVERY part (acknowledgement, each question,
    each try_now step, next_step) must be in the SAME language as the user's
@@ -76,19 +89,26 @@ Perform these steps in order:
    translate them. For "Mixed", use the main language of the message.
    - acknowledgement: one sentence that restates their specific problem, so
      they know you understood. If they sound frustrated, briefly show empathy.
-   - questions: at most 2, most important first, only for facts IT needs that
-     are still unknown. Each question asks for ONE fact, can be answered in a
-     few words, and gives example answers, e.g. "Which device is it: your
-     office laptop, desktop PC, or phone?". Never ask for something the user
-     already told you. Use an empty list if nothing important is missing.
+   - questions: one question for each of the first 2 items in
+     missing_details (so if missing_details is not empty, questions is not
+     empty either). The rest are asked in later replies.
+     Each question asks for ONE fact, can be answered in a few words, and
+     gives example answers, e.g. "Which device is it: your office laptop,
+     desktop PC, or phone?". Never ask a yes/no question: for the error, ask
+     what it says, e.g. "What does the error message say? You can copy the
+     text, or write 'no error' if there isn't one." Never ask for something
+     the user already answered. Use an empty list only when every detail is
+     answered, or the issue is not an IT issue.
    - try_now: up to 3 short, safe steps the user can try themselves, specific
      to their problem (e.g. restart the laptop, turn Wi-Fi off and on again,
      check the cable is plugged in). Never suggest anything risky: no changing
      system settings, installing software, or sharing passwords. Use an empty
      list if the problem is still unclear or not an IT issue.
    - next_step: one sentence. If needs_more_info is true, say you need their
-     answer before passing the ticket to IT. Otherwise, say the ticket has
-     been passed to the IT team.
+     answer before passing the ticket to IT. Otherwise, if there are
+     questions: "Your ticket has been passed to the IT team. Answering the
+     questions above will help them fix it faster." If there are no
+     questions: "Your ticket has been passed to the IT team." (translated)
 9. If it is not an IT issue: priority low, needs_more_info false, questions
    and try_now empty, the acknowledgement politely says this helpdesk only
    handles IT problems, and next_step kindly suggests asking the right team
@@ -160,9 +180,48 @@ def triage(history, on_status=_silent):
     on_status("Preparing your ticket")
     # JSON mode means the answer is already clean JSON; still check it fits
     try:
-        return Ticket.model_validate_json(text).model_dump()
+        ticket = Ticket.model_validate_json(text).model_dump()
     except ValueError:
         return None
+    return _ask_follow_ups(ticket)
+
+
+# Fixed follow-up questions, used when the model forgets to ask for a missing detail
+FOLLOW_UP_QUESTIONS = {
+    "English": {
+        "error_message": "What does the error message say? You can copy the text, or write 'no error' if there isn't one.",
+        "started": "When did this start? For example: this morning, yesterday, or last week.",
+        "tried_already": "What have you tried so far? For example: restarted it, or nothing yet.",
+    },
+    "Burmese": {
+        "error_message": "Error message မှာ ဘာရေးထားလဲ? စာကို copy ကူးပေးလို့ရပါတယ်။ မရှိရင် 'မရှိ' လို့ ရေးပေးပါ။",
+        "started": "ဒီပြဿနာ ဘယ်အချိန်ကစပြီး ဖြစ်တာလဲ? ဥပမာ - ဒီနေ့မနက်၊ မနေ့က၊ ပြီးခဲ့တဲ့အပတ်။",
+        "tried_already": "ဘာတွေ စမ်းလုပ်ကြည့်ပြီးပြီလဲ? ဥပမာ - restart လုပ်ပြီးပြီ၊ ဒါမှမဟုတ် ဘာမှ မလုပ်ရသေးဘူး။",
+    },
+    "Chinese": {
+        "error_message": "错误提示写的是什么？可以直接复制文字，如果没有请写“无”。",
+        "started": "这个问题是什么时候开始的？例如：今天早上、昨天、或上周。",
+        "tried_already": "您已经尝试过哪些方法？例如：重启过设备，或还没有尝试。",
+    },
+    "Malay": {
+        "error_message": "Apakah mesej ralat yang dipaparkan? Anda boleh salin teksnya, atau tulis 'tiada' jika tiada.",
+        "started": "Bilakah masalah ini bermula? Contohnya: pagi tadi, semalam, atau minggu lepas.",
+        "tried_already": "Apakah yang telah anda cuba? Contohnya: mulakan semula, atau belum cuba apa-apa.",
+    },
+}
+NOT_ANSWERED = ("", "unknown", "error shown, wording unknown")
+
+
+def _ask_follow_ups(ticket):
+    """The small model sometimes leaves a detail as "unknown" without asking about it.
+    Check in code, and add the fixed question(s) so IT gets the full picture."""
+    missing = [key for key in FOLLOW_UP_QUESTIONS["English"]
+               if ticket[key].strip().lower() in NOT_ANSWERED]
+    ticket["missing_details"] = [d for d in ticket["missing_details"] if d in ("device", "problem")] + missing
+    if ticket["is_it_issue"] and not ticket["questions"] and missing:
+        questions = FOLLOW_UP_QUESTIONS.get(ticket["language"], FOLLOW_UP_QUESTIONS["English"])
+        ticket["questions"] = [questions[key] for key in missing[:2]]
+    return ticket
 
 
 def ticket_to_html(ticket, on_status=_silent):
