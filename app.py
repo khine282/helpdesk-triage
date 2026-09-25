@@ -66,7 +66,7 @@ if message:
             status.update(label="Ticket ready", state="complete", expanded=False)
     if ticket is None:
         st.session_state.history.pop()
-        st.error("The AI models are busy or gave an unreadable answer. Please send your message again.")
+        st.error("Sorry, the assistant could not process your message right now. Please send it again.")
         st.stop()
     st.session_state.history.append({"role": "model", "text": json.dumps(ticket, ensure_ascii=False)})
     st.session_state.ticket = ticket

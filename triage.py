@@ -71,9 +71,9 @@ def _call_model(contents, system, on_status=_silent, schema=None):
     If schema is given, JSON mode is on and the answer must match it."""
     for i, model in enumerate(MODELS):
         if i > 0:
-            on_status(f"Switching to backup model `{model}`...")
+            on_status("Trying again with our backup assistant...")
         else:
-            on_status(f"Asking the AI model `{model}`...")
+            on_status("Analysing your issue...")
         start = time.perf_counter()
         try:
             response = client.models.generate_content(
@@ -88,14 +88,14 @@ def _call_model(contents, system, on_status=_silent, schema=None):
                 ),
             )
             elapsed = time.perf_counter() - start
-            on_status(f"Got an answer in {elapsed:.1f}s")
+            on_status(f"Analysis finished in {elapsed:.1f}s")
             return response.text
         except errors.APIError as e:
             print(f"{model} failed ({e.code}) after {time.perf_counter() - start:.1f}s")
-            on_status(f"`{model}` is busy or unavailable (error {e.code})")
+            on_status("The assistant is busy right now")
         except httpx.TimeoutException:
             print(f"{model} timed out, switching model")
-            on_status(f"`{model}` took too long to answer")
+            on_status("The assistant is taking too long")
     return None
 
 
@@ -114,11 +114,11 @@ def triage(history, on_status=_silent):
             text = f"<message>{text}</message>"
         contents.append(types.Content(role=turn["role"], parts=[types.Part(text=text)]))
 
-    on_status(f"Sending the conversation ({len(history)} message(s)) for triage")
+    on_status("Reading your message")
     text = _call_model(contents, SYSTEM, on_status, schema=Ticket)
     if text is None:
         return None
-    on_status("Reading the ticket details from the answer")
+    on_status("Preparing your ticket")
     # JSON mode means the answer is already clean JSON; still check it fits
     try:
         return Ticket.model_validate_json(text).model_dump()
