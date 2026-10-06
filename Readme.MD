@@ -4,7 +4,17 @@
 
 **Try the demo:** https://supportdesk-triage-kai.streamlit.app
 
-![App screenshot](images/demo.png)
+![Demo of the helpdesk app](images/demo.gif)
+
+🎥 [Watch the full demo video (80 seconds)](demo/helpDeskDemo.mp4)
+
+**What the demo shows:**
+
+1. An employee (signed in with a demo account) reports *"My laptop won't connect to the office Wi-Fi since this morning"*
+2. The assistant asks for the missing details, suggests a few things to try, and creates ticket `HD-3338`
+3. The employee adds more information ("it said I installed uncertified SSL") and the ticket updates to match
+4. The employee gets impatient ("please send some support"), and the ticket is marked **Sounds frustrated** with **High priority**
+5. Switching on **IT team view** shows the ticket from IT's side: who reported it, the category, the language, and every detail collected so far, with buttons to email the employee or turn the ticket into an HTML email
 
 ## About this project
 
@@ -83,7 +93,8 @@ helpdesk-triage/
 ├── app.py             # The Streamlit web page
 ├── eval.py            # The small accuracy test
 ├── requirements.txt   # Packages needed to run the app
-└── images/            # Screenshots for this README
+├── images/            # Screenshots and demo GIF for this README
+└── demo/              # Full demo video
 ```
 
 ## Run it yourself
